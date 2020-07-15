@@ -1,4 +1,5 @@
 ﻿using CasaDoCodigo.Models;
+using CasaDoCodigo.Models.ViewModels;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -12,20 +13,27 @@ namespace CasaDoCodigo.Repositories
     {
         Pedido GetPedido();
         void addItem(string codigo);
+        UpdateQuantidadeResponse UpdateQuantidade(ItemPedido itemPedido);
+        Pedido UpdateCadastro(Cadastro cadastro);
     }
     public class PedidoRepository : BaseRepository<Pedido>, IPedidoRepository
     {
         private readonly IHttpContextAccessor contextAccessor;
-        public PedidoRepository(ApplicationContext contexto, IHttpContextAccessor contextAccessor) : base(contexto)
+        private readonly IItemPedidoRepository itemPedidoRepository;
+        private readonly ICadastroRepository cadastroRepository;
+
+        public PedidoRepository(ApplicationContext contexto, IHttpContextAccessor contextAccessor, IItemPedidoRepository itemPedidoRepository, ICadastroRepository cadastroRepository) : base(contexto)
         {
             this.contextAccessor = contextAccessor;
+            this.itemPedidoRepository = itemPedidoRepository;
+            this.cadastroRepository = cadastroRepository;
         }
 
         public void addItem(string codigo)
         {
             var produto = contexto.Set<Produto>().Where(x => x.Codigo == codigo).SingleOrDefault();
 
-            if(produto == null)
+            if (produto == null)
             {
                 throw new ArgumentException("Produto não encontrado");
             }
@@ -49,7 +57,7 @@ namespace CasaDoCodigo.Repositories
             var pedidoId = GetPedidoId();
             var pedido = dbSet.Include(x => x.Itens).ThenInclude(x => x.Produto).Where(x => x.Id == pedidoId).SingleOrDefault();
 
-            if(pedido == null)
+            if (pedido == null)
             {
                 pedido = new Pedido();
                 dbSet.Add(pedido);
@@ -67,6 +75,36 @@ namespace CasaDoCodigo.Repositories
         private void SetPedidoId(int pedidoId)
         {
             contextAccessor.HttpContext.Session.SetInt32("pedidoId", pedidoId);
+        }
+
+        public UpdateQuantidadeResponse UpdateQuantidade(ItemPedido itemPedido)
+        {
+            var itemPedidoDb = itemPedidoRepository.GetItemPedido(itemPedido.Id);
+
+            if (itemPedidoDb != null)
+            {
+                itemPedidoDb.AtualizaQuantidade(itemPedido.Quantidade);
+
+                if(itemPedido.Quantidade == 0){
+                    itemPedidoRepository.RemoveItemPedido(itemPedido.Id);
+                }
+
+                contexto.SaveChanges();
+
+                var carrinhoViewModel = new CarrinhoViewModel(GetPedido().Itens);
+
+                return new UpdateQuantidadeResponse(itemPedidoDb, carrinhoViewModel);
+            }
+
+            throw new ArgumentException("ItemPedido não encontrado.");
+        }
+
+        public Pedido UpdateCadastro(Cadastro cadastro)
+        {
+            var pedido = GetPedido();
+            cadastroRepository.Update(pedido.Cadastro.Id, cadastro);
+
+            return pedido;
         }
     }
 }
